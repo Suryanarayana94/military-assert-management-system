@@ -1,13 +1,45 @@
-import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import jwt from 'jsonwebtoken'; import bcrypt from 'bcryptjs'; import 'dotenv/config';
-const app=express(), secret=process.env.JWT_SECRET||'demo-secret-change-me';
-app.use(helmet());app.use(cors());app.use(express.json());
-const users=[{id:1,username:'admin_user',role:'ADMIN',baseId:null,password:'AdminPass123!'},{id:2,username:'commander_alpha',role:'BASE_COMMANDER',baseId:1,password:'CommandPass123!'},{id:3,username:'logistics_officer',role:'LOGISTICS_OFFICER',baseId:1,password:'LogisticsPass123!'}];
-const audit=[{id:1,action:'TRANSFER',details:'12 M-ATVs transferred from Fort Alpha to Fort Bravo',createdAt:new Date().toISOString()}];
-const auth=(req,res,next)=>{const token=req.headers.authorization?.replace('Bearer ','');try{req.user=jwt.verify(token,secret);next()}catch{return res.status(401).json({message:'Authentication required'})}};
-const roles=(...allowed)=>(req,res,next)=>allowed.includes(req.user.role)?next():res.status(403).json({message:'Insufficient authorization level'});
-app.get('/api/health',(req,res)=>res.json({status:'ok',service:'sentinel-api'}));
-app.post('/api/auth/login',async(req,res)=>{const user=users.find(x=>x.username===req.body.username&&x.password===req.body.password);if(!user)return res.status(401).json({message:'Invalid credentials'});const token=jwt.sign({id:user.id,role:user.role,baseId:user.baseId},secret,{expiresIn:'8h'});res.json({token,user:{id:user.id,username:user.username,role:user.role,baseId:user.baseId}})});
-app.get('/api/dashboard',auth,(req,res)=>res.json({openingBalance:24891,purchases:2680,transfersIn:834,transfersOut:1106,assigned:6542,expended:1124,netMovement:1284,closingBalance:18964}));
-app.get('/api/audit-logs',auth,(req,res)=>res.json(audit));
-app.post('/api/transfers',auth,roles('ADMIN','LOGISTICS_OFFICER'),(req,res)=>{const {sourceBaseId,destinationBaseId,equipmentTypeId,quantity}=req.body;if(!sourceBaseId||!destinationBaseId||!equipmentTypeId||!Number.isInteger(quantity)||quantity<1)return res.status(400).json({message:'Valid source, destination, equipment and quantity are required'});const item={id:audit.length+1,action:'TRANSFER',details:`Transferred ${quantity} of equipment ${equipmentTypeId} from base ${sourceBaseId} to base ${destinationBaseId}`,userId:req.user.id,createdAt:new Date().toISOString()};audit.unshift(item);res.status(201).json({message:'Transfer recorded',transferId:item.id})});
-app.listen(process.env.PORT||4000,()=>console.log('Sentinel API ready'));
+import 'dotenv/config';
+import cors from 'cors';
+import express from 'express';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import prisma from './config/prisma.js';
+import authRoutes from './routes/authRoutes.js';
+import assetRoutes from './routes/assetRoutes.js';
+import purchaseRoutes from './routes/purchaseRoutes.js';
+import transferRoutes from './routes/transferRoutes.js';
+import assignmentRoutes from './routes/assignmentRoutes.js';
+import expenditureRoutes from './routes/expenditureRoutes.js';
+import auditRoutes from './routes/auditRoutes.js';
+import { errorHandler, notFound } from './middlewares/errorMiddleware.js';
+
+if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET must be configured.');
+
+const app = express();
+app.use(helmet());
+app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') || true }));
+app.use(express.json({ limit: '100kb' }));
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+
+app.get('/api/health', async (req, res, next) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ok', service: 'sentinel-api', database: 'connected' });
+  } catch (error) { next(error); }
+});
+app.use('/api/auth', authRoutes);
+app.use('/api', assetRoutes);
+app.use('/api/purchases', purchaseRoutes);
+app.use('/api/transfers', transferRoutes);
+app.use('/api/assignments', assignmentRoutes);
+app.use('/api/expenditures', expenditureRoutes);
+app.use('/api/audit-logs', auditRoutes);
+app.use(notFound);
+app.use(errorHandler);
+
+if (!process.env.VERCEL) {
+  const port = Number(process.env.PORT || 4000);
+  app.listen(port, () => console.log(`Sentinel API listening on port ${port}`));
+}
+
+export default app;

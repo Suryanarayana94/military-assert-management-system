@@ -1,12 +1,173 @@
-generator client { provider = "prisma-client-js" }
-datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
-enum Role { ADMIN BASE_COMMANDER LOGISTICS_OFFICER }
-enum Category { VEHICLE WEAPON AMMUNITION }
-model Base { id Int @id @default(autoincrement()); name String; location String; users User[] }
-model User { id Int @id @default(autoincrement()); username String @unique; passwordHash String; role Role; baseId Int?; base Base? @relation(fields:[baseId],references:[id]); auditLogs AuditLog[] }
-model EquipmentType { id Int @id @default(autoincrement()); name String; category Category; @@index([category]) }
-model Purchase { id Int @id @default(autoincrement()); baseId Int; equipmentTypeId Int; quantity Int; createdAt DateTime @default(now()); @@index([baseId, equipmentTypeId, createdAt]) }
-model Transfer { id Int @id @default(autoincrement()); sourceBaseId Int; destinationBaseId Int; equipmentTypeId Int; quantity Int; status String @default("COMPLETED"); initiatedBy Int; createdAt DateTime @default(now()); @@index([sourceBaseId, destinationBaseId, equipmentTypeId, createdAt]) }
-model Assignment { id Int @id @default(autoincrement()); baseId Int; equipmentTypeId Int; quantity Int; assignee String; createdAt DateTime @default(now()) }
-model Expenditure { id Int @id @default(autoincrement()); baseId Int; equipmentTypeId Int; quantity Int; createdAt DateTime @default(now()) }
-model AuditLog { id Int @id @default(autoincrement()); userId Int; user User @relation(fields:[userId],references:[id]); action String; details String; createdAt DateTime @default(now()); @@index([createdAt]) }
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  BASE_COMMANDER
+  LOGISTICS_OFFICER
+}
+
+enum Category {
+  VEHICLE
+  WEAPON
+  AMMUNITION
+}
+
+enum TransferStatus {
+  PENDING
+  IN_TRANSIT
+  COMPLETED
+}
+
+enum AuditAction {
+  PURCHASE
+  TRANSFER
+  ASSIGNMENT
+  EXPENDITURE
+}
+
+model Base {
+  id                   Int          @id @default(autoincrement())
+  name                 String       @unique @db.VarChar(100)
+  location             String       @db.VarChar(150)
+  users                User[]
+  assets               Asset[]
+  purchases            Purchase[]
+  sourceTransfers      Transfer[]   @relation("SourceBase")
+  destinationTransfers Transfer[]   @relation("DestinationBase")
+  assignments          Assignment[]
+  expenditures         Expenditure[]
+  createdAt            DateTime     @default(now())
+}
+
+model User {
+  id           Int          @id @default(autoincrement())
+  username     String       @unique @db.VarChar(50)
+  passwordHash String       @map("password_hash") @db.VarChar(255)
+  role         Role
+  baseId       Int?         @map("base_id")
+  base         Base?        @relation(fields: [baseId], references: [id], onDelete: SetNull)
+  purchases    Purchase[]   @relation("PurchaseCreator")
+  transfers    Transfer[]   @relation("TransferInitiator")
+  assignments  Assignment[] @relation("AssignmentCreator")
+  expenditures Expenditure[] @relation("ExpenditureCreator")
+  auditLogs    AuditLog[]
+  createdAt    DateTime     @default(now())
+
+  @@index([baseId])
+  @@map("users")
+}
+
+model EquipmentType {
+  id           Int           @id @default(autoincrement())
+  name         String        @unique @db.VarChar(100)
+  category     Category
+  assets       Asset[]
+  purchases    Purchase[]
+  transfers    Transfer[]
+  assignments  Assignment[]
+  expenditures Expenditure[]
+  createdAt    DateTime      @default(now())
+
+  @@index([category])
+  @@map("equipment_types")
+}
+
+model Asset {
+  id              Int           @id @default(autoincrement())
+  baseId          Int           @map("base_id")
+  equipmentTypeId Int           @map("equipment_type_id")
+  quantity        Int           @default(0)
+  base            Base          @relation(fields: [baseId], references: [id], onDelete: Cascade)
+  equipmentType   EquipmentType @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([baseId, equipmentTypeId])
+  @@index([baseId, equipmentTypeId])
+  @@map("assets")
+}
+
+model Purchase {
+  id              Int           @id @default(autoincrement())
+  baseId          Int           @map("base_id")
+  equipmentTypeId Int           @map("equipment_type_id")
+  quantity        Int
+  createdById     Int           @map("created_by")
+  base            Base          @relation(fields: [baseId], references: [id], onDelete: Restrict)
+  equipmentType   EquipmentType @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+  createdBy       User          @relation("PurchaseCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt       DateTime      @default(now())
+
+  @@index([baseId, equipmentTypeId, createdAt])
+  @@map("purchases")
+}
+
+model Transfer {
+  id                Int            @id @default(autoincrement())
+  sourceBaseId      Int            @map("source_base_id")
+  destinationBaseId Int            @map("destination_base_id")
+  equipmentTypeId   Int            @map("equipment_type_id")
+  quantity          Int
+  status            TransferStatus @default(COMPLETED)
+  initiatedById     Int            @map("initiated_by")
+  sourceBase        Base           @relation("SourceBase", fields: [sourceBaseId], references: [id], onDelete: Restrict)
+  destinationBase   Base           @relation("DestinationBase", fields: [destinationBaseId], references: [id], onDelete: Restrict)
+  equipmentType     EquipmentType  @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+  initiatedBy       User           @relation("TransferInitiator", fields: [initiatedById], references: [id], onDelete: Restrict)
+  createdAt         DateTime       @default(now())
+
+  @@index([sourceBaseId, equipmentTypeId, createdAt])
+  @@index([destinationBaseId, equipmentTypeId, createdAt])
+  @@map("transfers")
+}
+
+model Assignment {
+  id              Int           @id @default(autoincrement())
+  baseId          Int           @map("base_id")
+  equipmentTypeId Int           @map("equipment_type_id")
+  quantity        Int
+  assignee        String        @db.VarChar(150)
+  createdById     Int           @map("created_by")
+  base            Base          @relation(fields: [baseId], references: [id], onDelete: Restrict)
+  equipmentType   EquipmentType @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+  createdBy       User          @relation("AssignmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt       DateTime      @default(now())
+
+  @@index([baseId, equipmentTypeId, createdAt])
+  @@map("assignments")
+}
+
+model Expenditure {
+  id              Int           @id @default(autoincrement())
+  baseId          Int           @map("base_id")
+  equipmentTypeId Int           @map("equipment_type_id")
+  quantity        Int
+  reason          String        @db.VarChar(250)
+  createdById     Int           @map("created_by")
+  base            Base          @relation(fields: [baseId], references: [id], onDelete: Restrict)
+  equipmentType   EquipmentType @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+  createdBy       User          @relation("ExpenditureCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt       DateTime      @default(now())
+
+  @@index([baseId, equipmentTypeId, createdAt])
+  @@map("expenditures")
+}
+
+model AuditLog {
+  id        Int         @id @default(autoincrement())
+  userId    Int         @map("user_id")
+  action    AuditAction
+  details   String      @db.Text
+  user      User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt DateTime    @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
