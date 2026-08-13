@@ -19,6 +19,8 @@ The Express API runs at `http://localhost:4000` and exposes `/api/health`, `/api
 2. Deploy `backend` to Render/Railway as a Node service (`npm install && npm start`).
 3. Set `VITE_API_BASE_URL` in the frontend environment to the API URL and deploy `frontend` to Vercel/Netlify (`npm run build`).
 
+The repository also includes a GitHub Actions workflow that deploys the demo frontend to GitHub Pages whenever `master` is updated.
+
 ## Inventory model
 
 `Closing = Opening + Purchases + Transfers In − Transfers Out − Assigned − Expended`
