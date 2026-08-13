@@ -1,0 +1,12 @@
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
+enum Role { ADMIN BASE_COMMANDER LOGISTICS_OFFICER }
+enum Category { VEHICLE WEAPON AMMUNITION }
+model Base { id Int @id @default(autoincrement()); name String; location String; users User[] }
+model User { id Int @id @default(autoincrement()); username String @unique; passwordHash String; role Role; baseId Int?; base Base? @relation(fields:[baseId],references:[id]); auditLogs AuditLog[] }
+model EquipmentType { id Int @id @default(autoincrement()); name String; category Category; @@index([category]) }
+model Purchase { id Int @id @default(autoincrement()); baseId Int; equipmentTypeId Int; quantity Int; createdAt DateTime @default(now()); @@index([baseId, equipmentTypeId, createdAt]) }
+model Transfer { id Int @id @default(autoincrement()); sourceBaseId Int; destinationBaseId Int; equipmentTypeId Int; quantity Int; status String @default("COMPLETED"); initiatedBy Int; createdAt DateTime @default(now()); @@index([sourceBaseId, destinationBaseId, equipmentTypeId, createdAt]) }
+model Assignment { id Int @id @default(autoincrement()); baseId Int; equipmentTypeId Int; quantity Int; assignee String; createdAt DateTime @default(now()) }
+model Expenditure { id Int @id @default(autoincrement()); baseId Int; equipmentTypeId Int; quantity Int; createdAt DateTime @default(now()) }
+model AuditLog { id Int @id @default(autoincrement()); userId Int; user User @relation(fields:[userId],references:[id]); action String; details String; createdAt DateTime @default(now()); @@index([createdAt]) }
